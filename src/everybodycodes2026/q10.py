@@ -3,6 +3,8 @@ from itertools import count, chain
 from typing import Set, Iterable, Tuple, Mapping, Sequence, Optional
 
 DIRS = {c: pow(1j, i) for i, c in enumerate('v>^<')}
+
+
 def parse_input(input_: Iterable[str]) -> Tuple[Set[complex], Mapping[complex, Mapping[complex, Sequence[int]]]]:
     walls = set()
     ghosts = defaultdict(lambda: defaultdict(list))
@@ -15,6 +17,7 @@ def parse_input(input_: Iterable[str]) -> Tuple[Set[complex], Mapping[complex, M
             elif cell in DIRS:
                 ghosts[pos][DIRS[cell]].append(next(ghost_counter))
     return walls, ghosts
+
 
 def advance(walls: Set[complex], ghosts: Mapping[complex, Mapping[complex, Sequence[int]]]) -> Tuple[Mapping[int, int], Mapping[complex, Sequence[int]]]:
     collisions = defaultdict(int)
@@ -84,74 +87,68 @@ def part2(input_: Iterable[str], c_limit: int) -> int:
         if len(collisions) == 0:
             return t
 
+
 def part3(input_: Iterable[str], c_limit: int) -> int:
     walls, ghosts = parse_input(input_)
 
-    def advance(
-            states,
-            collisions
-    ):
-        new_collisions = dict(collisions)
-        new_states = dict()
+    def advance(states: Sequence[Tuple[complex, complex]], collisions: Sequence[int]) -> Tuple[Sequence[Tuple[complex, complex]], Sequence[int]]:
+        new_collisions = []
+        new_states = []
         inverted = defaultdict(list)
-        for id_, (pos, dir_) in states.items():
-            forward_pos = pos + dir_
-            delete = False
-            if forward_pos in walls:
-                new_pos, new_dir = pos, dir_ * -1j
-                new_collisions[id_] += 1
-                if new_collisions[id_] >= c_limit:
-                    delete = True
-            else:
+        for (pos, dir_), g_collisions in zip(states, collisions):
+            if (forward_pos := pos + dir_) not in walls:
                 new_pos, new_dir = forward_pos, dir_
-            if not delete:
-                new_states[id_] = new_pos, new_dir
-                inverted[new_pos].append(id_)
+                remove = False
+            else:
+                new_pos, new_dir = pos, dir_ * -1j
+                g_collisions += 1
+                remove = g_collisions >= c_limit
+            if not remove:
+                inverted[new_pos].append(len(new_states))
+                new_states.append((new_pos, new_dir))
+                new_collisions.append(g_collisions)
+        to_remove = set()
         for ids in inverted.values():
             if len(ids) <= 1:
                 continue
             for id_ in ids:
                 new_collisions[id_] += 1
                 if new_collisions[id_] >= c_limit:
-                    del new_states[id_]
+                    to_remove.add(id_)
                 else:
                     pos, dir_ = new_states[id_]
                     new_states[id_] = pos, -dir_
-        return new_states, new_collisions
-
-
-    states = dict()
-    for pos, pos_map in ghosts.items():
-        for dir_, ids in pos_map.items():
-            for id_ in ids:
-                states[id_] = pos, dir_
-    collisions = {id_: 0 for id_ in range(len(states))}
-
-    cache = dict()
+        return tuple(tuple(v for id_, v in enumerate(vals) if id_ not in to_remove) for vals in (new_states, new_collisions))
 
     t = 0
+    states = []
+    for pos, pos_map in ghosts.items():
+        for dir_, ids in pos_map.items():
+            for _ in ids:
+                states.append((pos, dir_))
+    collisions = [0] * len(states)
     ghosts_count = len(states)
+    cache = dict()
+
     while ghosts_count > 0:
 
         states, collisions = advance(states, collisions)
+        collisions = list(collisions)
         t += 1
         if len(states) < ghosts_count:
             ghosts_count = len(states)
             cache.clear()
-        states_key = tuple(sorted(states.items()))
+        states_key = tuple(states)
         if states_key not in cache:
             cache[states_key] = t, collisions
             continue
-
         t0, collisions0 = cache[states_key]
         dt = t - t0
-        d_collisions = {id_: d_c for id_, c0 in collisions0.items() if (d_c := collisions[id_] - c0) > 0}
-        max_cycles = max(0, min((c_limit - 1 - collisions[id_]) // d_c for id_, d_c in d_collisions.items()))
-        for id_, d_c in d_collisions.items():
-            collisions[id_] += max_cycles * d_c
+        d_collisions = [g_c - g_c0 for g_c, g_c0 in zip(collisions, collisions0)]
+        max_cycles = min((c_limit - 1 - collisions[id_]) // d_c for id_, d_c in enumerate(d_collisions) if d_c > 0)
+        collisions = tuple(g_c + max_cycles * d_g_c for g_c, d_g_c in zip(collisions, d_collisions))
         t += max_cycles * dt
     return t
-
 
 
 if __name__ == '__main__':
